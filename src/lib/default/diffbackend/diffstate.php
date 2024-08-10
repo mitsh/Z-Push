@@ -161,24 +161,48 @@ class DiffState implements IChanges {
                 $change['flags'] = SYNC_NEWMESSAGE;
                 $changes[] = $change;
             } else {
+                // Both messages are still available, compare states
                 $old_item =& $old[$id];
 
-                // Both messages are still available, compare flags and mod
-                if(isset($old_item["flags"]) && isset($item["flags"]) && $old_item["flags"] != $item["flags"]) {
+                if(isset($old_item["flags"], $item["flags"]) && $old_item["flags"] != $item["flags"]) {
                     // Flags changed
                     $change["type"] = "flags";
                     $change["flags"] = $item["flags"];
                     $changes[] = $change;
                 }
 
-                // @see https://jira.z-hub.io/browse/ZP-955
-                if (isset($old_item['mod']) && isset($item['mod'])) {
-                    if ($old_item['mod'] != $item['mod']) {
-                        $change["type"] = "change";
-                        $changes[] = $change;
-                    }
+                if(isset($old_item["answered"], $item["answered"]) && $old_item["answered"] != $item["answered"]) {
+                    // 'answered' changed
+                    $change["type"] = "change";
+                    $changes[] = $change;
                 }
-                else if (isset($old_item['mod']) || isset($item['mod'])) {
+                elseif(isset($old_item["forwarded"], $item["forwarded"]) && $old_item["forwarded"] != $item["forwarded"]) {
+                    // 'forwarded' changed
+                    $change["type"] = "change";
+                    $changes[] = $change;
+                }
+                elseif(isset($old_item["star"], $item["star"]) && $old_item["star"] != $item["star"]) {
+                    // 'flagged' aka 'FollowUp' aka 'starred' changed
+                    $change["type"] = "change";
+                    $changes[] = $change;
+                }
+                elseif(isset($old_item["draft"], $item["draft"]) && $old_item["draft"] != $item["draft"]) {
+                    // 'draft' changed
+                    $change["type"] = "change";
+                    $changes[] = $change;
+                }
+                elseif(!isset($old_item["draft"]) && isset($item["draft"]) && $item["draft"] === 1) {
+                    // AS16 migration 'draft' changed
+                    $change["type"] = "change";
+                    $changes[] = $change;
+                }                
+                elseif(isset($old_item['mod'], $item['mod']) && $old_item['mod'] != $item['mod']) {
+                    // message modified
+                    $change["type"] = "change";
+                    $changes[] = $change;
+                }
+                elseif(isset($old_item['mod']) xor isset($item['mod'])) {
+                    // modified date missing
                     $change["type"] = "change";
                     $changes[] = $change;
                 }
@@ -213,7 +237,7 @@ class DiffState implements IChanges {
     protected function updateState($type, $change) {
         // Change can be a change or an add
         if($type == "change") {
-            for($i=0; $i < count($this->syncstate); $i++) {
+            for($i=0; $i < count((array)$this->syncstate); $i++) {
                 if($this->syncstate[$i]["id"] == $change["id"]) {
                     $this->syncstate[$i] = $change;
                     return;
@@ -222,7 +246,7 @@ class DiffState implements IChanges {
             // Not found, add as new
             $this->syncstate[] = $change;
         } else {
-            for($i=0; $i < count($this->syncstate); $i++) {
+            for($i=0; $i < count((array)$this->syncstate); $i++) {
                 // Search for the entry for this item
                 if($this->syncstate[$i]["id"] == $change["id"]) {
                     if($type == "flags") {

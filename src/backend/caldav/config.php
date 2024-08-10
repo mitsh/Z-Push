@@ -38,7 +38,7 @@ define('CALDAV_SERVER', 'caldavserver.domain.com');
 // Server port
 define('CALDAV_PORT', '443');
 
-// Path
+// Base URL to principals calendar collection: use '%l' for local part or '%u' for full username
 define('CALDAV_PATH', '/caldav.php/%u/');
 
 // Default CalDAV folder (calendar folder/principal). This will be marked as the default calendar in the mobile
@@ -54,3 +54,13 @@ define('CALDAV_SUPPORTS_SYNC', false);
 // Maximum period to sync.
 // Some servers don't support more than 10 years so you will need to change this
 define('CALDAV_MAX_SYNC_PERIOD', 2147483647);
+
+// Filter discovered calendar urls, by inclusion or exclusion.
+// The default is to always include the calendar collection, unless either include or exclude is uncommented and configured.
+// The calendar collection is included, either when the include filter is not configured, or when the include filter matches.
+// The calendar collection is excluded, when the exclude filter is configured and it matches. Exclude always wins over include.
+// The defined constants can either be a string or an array of multiple strings, to provide multiple filters.
+// Exclude example: '*/archived-appointments/'
+// Include example: '*sync*'
+//define('CALDAV_PATH_INCLUDE', '');
+//define('CALDAV_PATH_EXCLUDE', '');

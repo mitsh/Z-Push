@@ -143,15 +143,13 @@ define('IMAP_FROM_SQL_EMAIL', '#mail_address');
 define('IMAP_FROM_SQL_FROM', '#first_name #last_name <#mail_address>');
 define('IMAP_FROM_SQL_FULLNAME', '#first_name #last_name');
 
-// SERVER: ldap server
-// SERVER_PORT: ldap port
+// SERVER_URI: ldap server
 // USER: dn to use for connecting
 // PASSWORD: password
 // QUERY: query to execute
 // FIELDS: columns in the query
 // FROM: string that will be the from, replacing the field names with the values
-define('IMAP_FROM_LDAP_SERVER', 'localhost');
-define('IMAP_FROM_LDAP_SERVER_PORT', '389');
+define('IMAP_FROM_LDAP_SERVER_URI', 'ldap://127.0.0.1:389/');
 define('IMAP_FROM_LDAP_USER', 'cn=zpush,ou=servers,dc=zpush,dc=org');
 define('IMAP_FROM_LDAP_PASSWORD', 'password');
 define('IMAP_FROM_LDAP_BASE', 'dc=zpush,dc=org');
@@ -219,3 +217,7 @@ define('IMAP_MEETING_USE_CALDAV', false);
 
 // Specify Which Charset the IMAP Search is going to use, Default is 'UTF-8' but you could use 'US-ASCII'
 define('IMAP_SEARCH_CHARSET', 'UTF-8');
+
+// Use additional recevied mail header for remote device IP address. Example: 
+// received: from 1.2.3.123 by hostname (Z-Push); Mon, 01 Jan 2024 00:00:00 +1000
+define('IMAP_RECEIVED', false);

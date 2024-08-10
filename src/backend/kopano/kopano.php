@@ -125,7 +125,7 @@ class BackendKopano implements IBackend, ISearchProvider {
      * @return string       AS version constant
      */
     public function GetSupportedASVersion() {
-        return ZPush::ASV_141;
+        return ZPush::ASV_161;
     }
 
     /**
@@ -960,7 +960,7 @@ class BackendKopano implements IBackend, ISearchProvider {
         $deviceType = strtolower(Request::GetDeviceType());
         if ($deviceType == 'iphone' || $deviceType == 'ipad' || $deviceType == 'ipod') {
             $matches = array();
-            if (preg_match("/^Apple-.*?\/(\d{4})\./", Request::GetUserAgent(), $matches) && isset($matches[1]) && $matches[1] >= 1607) {
+            if (preg_match("/^Apple-.*?\/(\d{4})\./", Request::GetUserAgent(), $matches) && isset($matches[1]) && $matches[1] >= 1607 && $matches[1] <= 1707) {
                 ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendKopano->MeetingResponse: iOS device %s->%s", Request::GetDeviceType(), Request::GetUserAgent()));
                 $sendresponse = true;
             }
@@ -1202,7 +1202,8 @@ class BackendKopano implements IBackend, ISearchProvider {
                 $response->to = $to;
                 $response->status = SYNC_RESOLVERECIPSSTATUS_SUCCESS;
 
-                $recipient = $this->resolveRecipient($to, $maxAmbiguousRecipients);
+                // do not expand distlists here
+                $recipient = $this->resolveRecipient($to, $maxAmbiguousRecipients, false);
                 if (is_array($recipient) && !empty($recipient)) {
                     $response->recipientcount = 0;
                     foreach ($recipient as $entry) {
@@ -1413,11 +1414,37 @@ class BackendKopano implements IBackend, ISearchProvider {
      * @return array
      */
     public function GetMailboxSearchResults($cpo) {
+        $items = array();
+        $flags = 0;
         $searchFolder = $this->getSearchFolder();
-        $searchRestriction = $this->getSearchRestriction($cpo);
-        $searchRange = explode('-', $cpo->GetSearchRange());
-        $searchFolderId = $cpo->GetSearchFolderid();
         $searchFolders = array();
+
+        if ($cpo->GetFindSearchId()) {
+            Zlog::Write(LOGLEVEL_DEBUG, sprintf("Grommunio->GetMailboxSearchResults(): Do FIND"));
+            $searchRange = explode('-', $cpo->GetFindRange());
+
+            $searchRestriction = $this->getFindRestriction($cpo);
+            $searchFolderId = $cpo->GetFindFolderId();
+            $range = $cpo->GetFindRange();
+
+            // if subfolders are required, do a recursive search
+            if ($cpo->GetFindDeepTraversal()) {
+                $flags |= SEARCH_RECURSIVE;
+            }
+        }
+        else {
+            Zlog::Write(LOGLEVEL_DEBUG, sprintf("Grommunio->GetMailboxSearchResults(): Do SEARCH"));
+            $searchRestriction = $this->getSearchRestriction($cpo);
+            $searchRange = explode('-', $cpo->GetSearchRange());
+            $searchFolderId = $cpo->GetSearchFolderid();
+            $range = $cpo->GetSearchRange();
+
+            // if subfolders are required, do a recursive search
+            if ($cpo->GetSearchDeepTraversal()) {
+                $flags |= SEARCH_RECURSIVE;
+            }
+        }
+
         // search only in required folders
         if (!empty($searchFolderId)) {
             $searchFolderEntryId = mapi_msgstore_entryidfromsourcekey($this->store, hex2bin($searchFolderId));
@@ -1428,13 +1455,6 @@ class BackendKopano implements IBackend, ISearchProvider {
             $tmp = mapi_getprops($this->store, array(PR_ENTRYID,PR_DISPLAY_NAME,PR_IPM_SUBTREE_ENTRYID));
             $searchFolders[] = $tmp[PR_IPM_SUBTREE_ENTRYID];
         }
-        $items = array();
-        $flags = 0;
-        // if subfolders are required, do a recursive search
-        if ($cpo->GetSearchDeepTraversal()) {
-            $flags |= SEARCH_RECURSIVE;
-        }
-
         mapi_folder_setsearchcriteria($searchFolder, $searchRestriction, $searchFolders, $flags);
 
         $table = mapi_folder_getcontentstable($searchFolder);
@@ -1454,11 +1474,12 @@ class BackendKopano implements IBackend, ISearchProvider {
 
         $cnt = count($rows);
         $items['searchtotal'] = $cnt;
-        $items["range"] = $cpo->GetSearchRange();
+        $items["range"] = $range;
         for ($i = 0; $i < $cnt; $i++) {
             $items[$i]['class'] = 'Email';
             $items[$i]['longid'] = ZPush::GetDeviceManager()->GetFolderIdForBackendId(bin2hex($rows[$i][PR_PARENT_SOURCE_KEY])) . ":" . bin2hex($rows[$i][PR_SOURCE_KEY]);
             $items[$i]['folderid'] = bin2hex($rows[$i][PR_PARENT_SOURCE_KEY]);
+            $items[$i]['serverid'] = bin2hex($rows[$i][PR_SOURCE_KEY]);
         }
         return $items;
     }
@@ -1729,7 +1750,7 @@ class BackendKopano implements IBackend, ISearchProvider {
         $storeProps = mapi_getprops($this->store, array(PR_MESSAGE_SIZE_EXTENDED));
 
         // Disable the sending of the storesize parameter to KOE.
-        // In case this parameter is greater than 0 then KOE will reduce the synched data window basing on thresholds and 
+        // In case this parameter is greater than 0 then KOE will reduce the synched data window basing on thresholds and
         // displays a dialog message.
         if (defined('DISABLE_KOE_STORESIZE_LIMIT') && DISABLE_KOE_STORESIZE_LIMIT === true) {
             ZLog::Write(LOGLEVEL_DEBUG, sprintf("KopanoBackend->GetUserStoreInfo(): KOE storesize limit handling is DISABLED."));
@@ -2294,15 +2315,51 @@ class BackendKopano implements IBackend, ISearchProvider {
     }
 
     /**
+     * Creates a FIND restriction.
+     *
+     * @param ContentParameter $cpo
+     *
+     * @return array
+     */
+    private function getFindRestriction($cpo) {
+        $findText = $cpo->GetFindFreeText();
+
+        $findFor = "";
+        if (!(stripos($findText, ":") && (stripos($findText, "OR") || stripos($findText, "AND")))) {
+            $findFor = $findText;
+        }
+        else {
+            // just extract a list of words we search for ignoring the fields to be searched in
+            // this list of words is then passed to getSearchRestriction()
+            $words = [];
+            foreach (explode(" OR ", $findText) as $search) {
+                if (stripos($search, ':')) {
+                    $value = explode(":", $search)[1];
+                }
+                else {
+                    $value = $search;
+                }
+                $words[str_replace('"', '', $value)] = true;
+            }
+            $findFor = implode(" ", array_keys($words));
+        }
+        Zlog::Write(LOGLEVEL_DEBUG, sprintf("Grommunio->getFindRestriction(): extracted words: %s", $findFor));
+        $cpo->SetSearchFreeText($findFor);
+
+        return $this->getSearchRestriction($cpo);
+    }
+
+    /**
      * Resolve recipient based on his email address.
      *
      * @param string $to
      * @param int $maxAmbiguousRecipients
+     * @param boolean $expandDistlist
      *
      * @return SyncResolveRecipient|boolean
      */
-    private function resolveRecipient($to, $maxAmbiguousRecipients) {
-        $recipient = $this->resolveRecipientGAL($to, $maxAmbiguousRecipients);
+    private function resolveRecipient($to, $maxAmbiguousRecipients, $expandDistlist = true) {
+        $recipient = $this->resolveRecipientGAL($to, $maxAmbiguousRecipients, $expandDistlist);
 
         if ($recipient !== false) {
             return $recipient;
@@ -2322,9 +2379,10 @@ class BackendKopano implements IBackend, ISearchProvider {
      *
      * @param string $to
      * @param int $maxAmbiguousRecipients
+     * @param boolean $expandDistlist
      * @return array|boolean
      */
-    private function resolveRecipientGAL($to, $maxAmbiguousRecipients) {
+    private function resolveRecipientGAL($to, $maxAmbiguousRecipients, $expandDistlist = true) {
         ZLog::Write(LOGLEVEL_WBXML, sprintf("Kopano->resolveRecipientGAL(): Resolving recipient '%s' in GAL", $to));
         $addrbook = $this->getAddressbook();
         // FIXME: create a function to get the adressbook contentstable
@@ -2365,14 +2423,20 @@ class BackendKopano implements IBackend, ISearchProvider {
                     continue;
                 }
                 if ($abentries[$i][PR_OBJECT_TYPE] == MAPI_DISTLIST) {
-                    // dist lists must be expanded into their members
-                    ZLog::Write(LOGLEVEL_DEBUG, sprintf("Kopano->resolveRecipientGAL(): '%s' is a dist list. Expand it to members.", $to));
-                    $distList = mapi_ab_openentry($addrbook, $abentries[$i][PR_ENTRYID]);
-                    $distListContent = mapi_folder_getcontentstable($distList);
-                    $distListMembers = mapi_table_queryallrows($distListContent, array(PR_ENTRYID, PR_DISPLAY_NAME, PR_EMS_AB_TAGGED_X509_CERT));
-                    for ($j = 0, $nrDistListMembers = mapi_table_getrowcount($distListContent); $j < $nrDistListMembers; $j++) {
-                        ZLog::Write(LOGLEVEL_WBXML, sprintf("Kopano->resolveRecipientGAL(): distlist's '%s' member", $to, $distListMembers[$j][PR_DISPLAY_NAME]));
-                        $recipientGal[] = $this->createResolveRecipient(SYNC_RESOLVERECIPIENTS_TYPE_GAL, $to, $distListMembers[$j], $nrDistListMembers);
+                    // check whether to expand dist list
+                    if ($expandDistlist) {
+                        ZLog::Write(LOGLEVEL_DEBUG, sprintf("Kopano->resolveRecipientGAL(): '%s' is a dist list. Expand it to members.", $to));
+                        $distList = mapi_ab_openentry($addrbook, $abentries[$i][PR_ENTRYID]);
+                        $distListContent = mapi_folder_getcontentstable($distList);
+                        $distListMembers = mapi_table_queryallrows($distListContent, array(PR_ENTRYID, PR_DISPLAY_NAME, PR_EMS_AB_TAGGED_X509_CERT));
+                        for ($j = 0, $nrDistListMembers = mapi_table_getrowcount($distListContent); $j < $nrDistListMembers; $j++) {
+                            ZLog::Write(LOGLEVEL_WBXML, sprintf("Kopano->resolveRecipientGAL(): distlist's '%s' member", $to, $distListMembers[$j][PR_DISPLAY_NAME]));
+                            $recipientGal[] = $this->createResolveRecipient(SYNC_RESOLVERECIPIENTS_TYPE_GAL, $to, $distListMembers[$j], $nrDistListMembers);
+                        }
+                    }
+                    else {
+                        ZLog::Write(LOGLEVEL_DEBUG, sprintf("Kopano->resolveRecipientGAL(): '%s' is a dist list, but return it as is.", $to));
+                        $recipientGal[] = $this->createResolveRecipient(SYNC_RESOLVERECIPIENTS_TYPE_GAL, $abentries[$i][PR_SMTP_ADDRESS], $abentries[$i]);
                     }
                 }
                 elseif ($abentries[$i][PR_OBJECT_TYPE] == MAPI_MAILUSER) {
@@ -2634,7 +2698,8 @@ class BackendKopano implements IBackend, ISearchProvider {
                             $endSlot--;
                         }
 
-                        for ($i = $startSlot; $i <= $endSlot; $i++) {
+                        // the endslot may be higher than the requested timeslots, in such case ignore free-busy unnecessary slots
+                        for ($i = $startSlot, $l = (($endSlot > $timeslots) ? ($timeslots - 1) : $endSlot); $i <= $l; $i++) {
                             // only set the new slot's free busy status if it's higher than the current one
                             if ($blockItem['status'] > $mergedFreeBusy[$i]) {
                                 $mergedFreeBusy[$i] = $blockItem['status'];

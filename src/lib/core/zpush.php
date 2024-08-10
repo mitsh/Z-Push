@@ -45,6 +45,8 @@ class ZPush {
     const ASV_121 = "12.1";
     const ASV_14 = "14.0";
     const ASV_141 = "14.1";
+    const ASV_16 = "16.0";
+    const ASV_161 = "16.1";
 
     /**
      * Command codes for base64 encoded requests (AS >= 12.1)
@@ -68,6 +70,7 @@ class ZPush {
     const COMMAND_PROVISION = 20;
     const COMMAND_RESOLVERECIPIENTS = 21;
     const COMMAND_VALIDATECERT = 22;
+    const COMMAND_FIND = 23;
 
     // Deprecated commands
     const COMMAND_GETHIERARCHY = -1;
@@ -97,7 +100,9 @@ class ZPush {
                     self::ASV_12,
                     self::ASV_121,
                     self::ASV_14,
-                    self::ASV_141
+                    self::ASV_141,
+                    self::ASV_16,
+                    self::ASV_161
                 );
 
     static private $supportedCommands = array(
@@ -126,6 +131,7 @@ class ZPush {
                     self::COMMAND_NOTIFY            => array(self::ASV_1,  self::REQUESTHANDLER => "Notify"),                                           // deprecated & not implemented
                     self::COMMAND_ITEMOPERATIONS    => array(self::ASV_12, self::REQUESTHANDLER => "ItemOperations"),
                     self::COMMAND_SETTINGS          => array(self::ASV_12, self::REQUESTHANDLER => "Settings"),
+                    self::COMMAND_FIND          => array(self::ASV_161, self::REQUESTHANDLER => "Find"),
 
                     self::COMMAND_WEBSERVICE_DEVICE => array(self::REQUESTHANDLER => "Webservice", self::PLAININPUT, self::NOACTIVESYNCCOMMAND, self::WEBSERVICECOMMAND),
                     self::COMMAND_WEBSERVICE_USERS  => array(self::REQUESTHANDLER => "Webservice", self::PLAININPUT, self::NOACTIVESYNCCOMMAND, self::WEBSERVICECOMMAND),
@@ -303,10 +309,10 @@ class ZPush {
             }
             elseif (!is_numeric(DELETION_RATIO_THR) || DELETION_RATIO_THR <= 0) {
                 throw new FatalMisconfigurationException("The DELETION_RATIO_THR value must be a number higher than 0.");
-            } 
+            }
             elseif (!is_int(DELETION_COUNT_THR) || DELETION_COUNT_THR < 1) {
                 throw new FatalMisconfigurationException("The DELETION_COUNT_THR value must be a number higher than 0.");
-            }     
+            }
             elseif (!is_int(DELETION_COUNT_LIMIT) || DELETION_COUNT_LIMIT <= DELETION_COUNT_THR) {
                 throw new FatalMisconfigurationException("The DELETION_COUNT_LIMIT value must be a positive number higher than DELETION_COUNT_THR.");
             }
@@ -318,7 +324,7 @@ class ZPush {
         }
         if ((defined('FILE_STATE_SLEEP')) && (!is_int(FILE_STATE_SLEEP) || FILE_STATE_SLEEP < 1)) {
             throw new FatalMisconfigurationException("The FILE_STATE_SLEEP value must be a number higher than 0.");
-        }   
+        }
         if (defined('FILE_STATE_WRITE_ATTEMPTS') || defined('FILE_STATE_WRITE_SLEEP')){
             throw new FatalMisconfigurationException("The configuration parameter 'FILE_STATE_WRITE_ATTEMPTS' and 'FILE_STATE_WRITE_SLEEP' were deprecated in favor of 'FILE_STATE_ATTEMPTS' and 'FILE_STATE_SLEEP'. Please update your configuration.");
         }
@@ -329,8 +335,12 @@ class ZPush {
         }
         if ((defined('FILE_STATE_WRITE_SLEEP')) && (!is_int(FILE_STATE_WRITE_SLEEP) || FILE_STATE_WRITE_SLEEP < 1)) {
             throw new FatalMisconfigurationException("The FILE_STATE_WRITE_SLEEP value must be a number higher than 0.");
-        }        
+        }
 
+        //check retry loop settings when unserializing file state machine data from disk
+        if ((defined('FILE_STATE_UNSERIALIZE_ATTEMPTS')) && (!is_int(FILE_STATE_UNSERIALIZE_ATTEMPTS) || FILE_STATE_UNSERIALIZE_ATTEMPTS < 1)) {
+            throw new FatalMisconfigurationException("The FILE_STATE_UNSERIALIZE_ATTEMPTS value must be a number higher than 0.");
+        }
         return true;
     }
 
@@ -437,6 +447,11 @@ class ZPush {
             }
         }
 
+        // Check Iconv option
+        if (!defined('ICONV_OPTION')) {
+            define('ICONV_OPTION', "");
+        }
+                        
         ZLog::Write(LOGLEVEL_DEBUG, sprintf("Used timezone '%s'", date_default_timezone_get()));
 
         // get the statemachine, which will also try to load the backend.. This could throw errors
@@ -803,7 +818,6 @@ class ZPush {
      */
     static public function PrintZPushLegal($message = "", $additionalMessage = "") {
         ZLog::Write(LOGLEVEL_DEBUG,"ZPush::PrintZPushLegal()");
-        $zpush_version = @constant('ZPUSH_VERSION');
 
         if ($message)
             $message = "<h3>". $message . "</h3>";
@@ -819,14 +833,13 @@ class ZPush {
         <body>
         <font face="verdana">
         <h2>Z-Push - Open Source ActiveSync</h2>
-        <b>Version $zpush_version</b><br>
         $message $additionalMessage
         <br><br>
         More information about Z-Push can be found at:<br>
         <a href="http://z-push.org/">Z-Push homepage</a><br>
-        <a href="http://z-push.org/download">Z-Push download page</a><br>
-        <a href="https://jira.z-hub.io/browse/ZP">Z-Push Bugtracker</a><br>
-        <a href="https://wiki.z-hub.io/display/ZP">Z-Push Wiki</a> and <a href="https://wiki.z-hub.io/display/ZP/Roadmap">Roadmap</a><br>
+        <a href="https://z-push.org/download/">Z-Push download page</a><br>
+        <a href="https://github.com/Z-Hub/Z-Push/issues">Z-Push Bugtracker</a><br>
+        <a href="https://github.com/Z-Hub/Z-Push/wiki">Z-Push Wiki</a> and <a href="https://github.com/Z-Hub/Z-Push/wiki/Roadmap">Roadmap</a><br>
         <br>
         All modifications to this sourcecode must be published and returned to the community.<br>
         Please see <a href="http://www.gnu.org/licenses/agpl-3.0.html">AGPLv3 License</a> for details.<br>

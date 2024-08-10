@@ -35,6 +35,9 @@
     // Try to set unlimited timeout
     define('SCRIPT_TIMEOUT', 0);
 
+    // This should be solved on THE webserver level if there are proxies
+    // between mobile client and Z-Push.
+    // IMPORTANT: This setting will be deprecated in Z-Push 2.7.0.
     // Use a custom header to determinate the remote IP of a client.
     // By default, the server provided REMOTE_ADDR is used. If the header here set
     // is available, the provided value will be used, else REMOTE_ADDR is maintained.
@@ -109,7 +112,7 @@
  *  LOGAUTHFAIL is logged to the LOGBACKEND.
  */
     define('LOGBACKEND', 'filelog');
-    define('LOGLEVEL', LOGLEVEL_WBXML);
+    define('LOGLEVEL', LOGLEVEL_INFO);
     define('LOGAUTHFAIL', false);
 
     // To save e.g. WBXML data only for selected users, add the usernames to the array
@@ -413,3 +416,19 @@
         ),
 */
     );
+
+/**********************************************************************************
+ *  Iconv settings
+ *
+ *  Adds the //TRANSLIT and //IGNORE options for Iconv when converting to UTF8.
+ *
+ *  TRANSLIT attempts to transliterate characters that cannot be converted to the
+ *  target character set, while IGNORE discards them.
+ *  
+ *  These Can be combined as //TRANSLIT//IGNORE to first transliterate, and if that
+ *  fails then discard the characters. 
+ * 
+ *  These options are dependant on the iconv implementation on the system. See
+ *  https://www.php.net/manual/en/function.iconv.php
+ */
+    define('ICONV_OPTION', "");

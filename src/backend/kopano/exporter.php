@@ -167,6 +167,7 @@ class ExportChangesICS implements IExportChanges{
      */
     public function ConfigContentParameters($contentparameters){
         $filtertype = $contentparameters->GetFilterType();
+
         switch($contentparameters->GetContentClass()) {
             case "Email":
                 $this->restriction = ($filtertype || !Utils::CheckMapiExtVersion('7')) ? MAPIUtils::GetEmailRestriction(Utils::GetCutOffDate($filtertype)) : false;

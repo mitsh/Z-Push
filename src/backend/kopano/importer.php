@@ -169,6 +169,11 @@ class ImportChangesICS implements IImportChanges {
      */
     public function ConfigContentParameters($contentparameters) {
         $filtertype = $contentparameters->GetFilterType();
+
+        if ($filtertype == SYNC_FILTERTYPE_DISABLE) {
+            $filtertype = false;
+        }
+
         switch($contentparameters->GetContentClass()) {
             case "Email":
                 $this->cutoffdate = ($filtertype) ? Utils::GetCutOffDate($filtertype) : false;
@@ -625,7 +630,7 @@ class ImportChangesICS implements IImportChanges {
             throw new StatusException(sprintf("ImportChangesICS->ImportMessageMove('%s','%s'): Error, mapi_savechanges() failed: 0x%X", $sk, $newfolder, mapi_last_hresult()), SYNC_MOVEITEMSSTATUS_CANNOTMOVE);
 
         // Delete the old message
-        if (!mapi_folder_deletemessages($srcfolder, array($entryid)))
+        if (!mapi_folder_deletemessages($srcfolder, array($entryid), DELETE_HARD_DELETE))
             throw new StatusException(sprintf("ImportChangesICS->ImportMessageMove('%s','%s'): Error, delete of source message failed: 0x%X. Possible duplicates.", $sk, $newfolder, mapi_last_hresult()), SYNC_MOVEITEMSSTATUS_SOURCEORDESTLOCKED);
 
         $sourcekeyprops = mapi_getprops($newmessage, array (PR_SOURCE_KEY));
